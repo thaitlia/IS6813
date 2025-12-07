@@ -13,7 +13,7 @@
 ## Individual Notebooks
 | Notebook Title  | About | Link |
 | :---: | :---: | :---: |
-| IS 6813 EDA Assignment | Initial Exploratory Data Analysis (EDA) of SWIRE Coca-Cola data| [IS 6813 EDA Assignment.Rmd](https://github.com/thaitlia/IS-6812/blob/b99bb5fd72137b7be76c951ba2d335152e1b6280/Final%20Presentation%20Modeling.Rmd) |
+| IS 6813 EDA Assignment | Initial Exploratory Data Analysis (EDA) of SWIRE Coca-Cola data| [IS 6813 EDA Assignment.Rmd](https://github.com/thaitlia/IS6813/blob/main/IS%206813%20EDA%20Assignment.Rmd) |
 | Random Sampling of Home Credit Default Risk Files| Taking samples from each Home Credit files provided | [Random Sampling of Home Credit Default Risk Files.Rmd ](https://github.com/thaitlia/IS-6812/blob/8477ecd24e4e3fed6b69e308e4601ff2ce8c247f/Random%20Sampling%20of%20Home%20Credit%20Default%20Risk%20Files.Rmd)|
 | Presentation Modeling | Additional work in preparation for the Practice Presentation assignment | [Presentation Modeling.Rmd](https://github.com/thaitlia/IS-6812/blob/c0e0618d4f2e1abeb56602105b62ce9daed017ed/Presentation%20Modeling.Rmd)|
 | Final Presentation Modeling | Additional work in preparation for the Final Presentation assignment | [Final Presentation Modeling.Rmd](https://github.com/thaitlia/IS-6812/blob/40080492facb6cd998e1a22c5701d240b1a9965b/Final%20Presentation%20Modeling.Rmd) |
