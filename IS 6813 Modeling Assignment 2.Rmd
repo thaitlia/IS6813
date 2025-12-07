@@ -1,0 +1,231 @@
+---
+title: "IS 6813 Modeling Assignment 2.0"
+author: "Sabrina Lin"
+date: "2025-10-27"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    toc-title: "Contents"
+    embed-resources: true
+execute:
+  include: true
+  eval: true    
+  warning: false
+  message: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(caret)
+library(randomForest)
+library(C50)
+library(rpart)
+library(rminer)
+library(e1071)
+```
+
+## Success Metric 4 - Customer Engagement: Improve customer checkout completion rates by 15% among customers targeted with reminders or interventions
+
+```{r}
+
+#Final output csv
+
+modeling <- read.csv('IS 6813 Final Output for Modeling.csv')
+
+```
+
+
+Factoring columns
+
+```{r}
+
+#convert all character columns to factors
+modeling[sapply(modeling, is.character)] <- lapply(modeling[sapply(modeling, is.character)], as.factor)
+
+```
+
+Time to model! 
+
+Type: RandomForest
+
+Goal: Customer Engagement - Improve customer checkout completion rates by 15% among customers targeted with reminders or interventions
+
+Target variable: Abandoned_Cart -> 1-no, not abandoned; 0-yes, otherwise
+
+```{r}
+
+modeling |>
+  pull(made_a_purchase) |>
+  table()
+    
+modeling |>
+  pull(made_a_purchase) |>
+  table() |>
+  prop.table() |>
+  round(2)
+
+```
+
+Need to cross-validate model, so taking 70% for training and the other 30% for testing.
+
+```{r}
+
+#set seed for reproducibility
+set.seed(123)
+
+#use 70% of dataset as training set and 30% as test set
+train <- createDataPartition(modeling$made_a_purchase, p=0.7, list=FALSE)
+
+length(train)
+class(train)
+
+train_set <- modeling[train,]
+test_set <- modeling[-train,]
+
+train_set |>
+  nrow()
+
+test_set |>
+  nrow()
+
+```
+
+Seeing the count and distributions of Abandoned_Cart in the 70/30 train and test set.
+
+```{r}
+
+train_set |>
+  pull(made_a_purchase) |>
+  table() 
+
+train_set |>
+  pull(made_a_purchase) |>
+  table() |>
+  prop.table()
+
+test_set |>
+  pull(made_a_purchase) |>
+  table() 
+
+test_set |>
+  pull(made_a_purchase) |>
+  table() |>
+  prop.table()
+
+```
+
+Looks pretty representative to the original data set of 90% to 10% abandoned to not abandoned. 
+
+Now for the actual modeling portion - would like to try both RandomForest and other Decision Trees.
+
+RandomForest
+
+```{r}
+
+#These columns have factors with levels above 53 which randomForest cannot compute 
+train_set$transaction_date_df2 <- NULL
+train_set$event_date_df1 <- NULL
+train_set$EVENT_TIMESTAMP <- NULL
+
+```
+
+
+```{r}
+
+rpart_model <- rpart(made_a_purchase ~ ., data = train_set, method = "class")
+
+library(rpart.plot)
+rpart.plot(rpart_model)
+    
+```
+
+```{r 025 model decision tree}
+
+# Convert the 'score' column to a factor
+train_set$made_a_purchase <- as.factor(train_set$made_a_purchase)
+
+train_model_96 <- C5.0(made_a_purchase ~ DEVICE_CATEGORY + DEVICE_MOBILE_BRAND_NAME + DEVICE_OPERATING_SYSTEM + ORDER_TYPE, data=train_set, control=C5.0Control(CF=0.025, earlyStopping = FALSE, noGlobalPruning=FALSE, minCases = 10))
+                       
+train_model_96
+```
+```{r include=TRUE, fig.height=8, fig.width=20}
+plot(train_model_96)
+```
+
+```{r}
+
+#final output csv
+modeling <- read.csv('IS 6813 Final Output for Modeling.csv')
+
+#omitting datetime columns as well as material IDs and items as I do not wish to use for scope of my modeling purposes
+modeling$transaction_date_df2 <- NULL
+modeling$event_date_df1 <- NULL
+modeling$EVENT_TIMESTAMP <- NULL
+modeling$MATERIAL_ID <- NULL
+modeling$ITEMS <- NULL
+
+#factoring the made_a_purchase target variable column to use for model
+modeling$made_a_purchase <- as.factor(modeling$made_a_purchase)
+
+#set seed for reproducibility
+set.seed(123)
+
+#use 70% of dataset as training set and 30% as test set
+train <- createDataPartition(modeling$made_a_purchase, p=0.7, list=FALSE)
+
+length(train)
+class(train)
+
+train_set <- modeling[train,]
+test_set <- modeling[-train,]
+
+train_set |>
+  nrow()
+
+test_set |>
+  nrow()
+
+```
+
+```{r}
+
+#naiveBayes model with specified predictors
+nb_model <- naiveBayes(made_a_purchase ~ DEVICE_CATEGORY + DEVICE_MOBILE_BRAND_NAME + DEVICE_OPERATING_SYSTEM + ORDER_TYPE, data=train_set, laplace=0)
+
+nb_model
+
+```
+
+
+Generating predictions for naive Bayes model. 
+```{r nb model prediction}
+
+train_nb_model_pred <- predict(nb_model, train_set)
+test_nb_model_pred <- predict(nb_model, test_set)
+
+```
+
+Generating confusion matrix for naive Bayes model. 
+```{r}
+
+mmetric(train_set$made_a_purchase, train_nb_model_pred, metric='CONF')
+mmetric(test_set$made_a_purchase, test_nb_model_pred, metric='CONF')
+
+```
+
+Generating metrics for naive Bayes model. 
+```{r}
+mmetric(train_set$made_a_purchase, train_nb_model_pred, metric=c('F1','ACC','PRECISION','RECALL'))
+
+mmetric(test_set$made_a_purchase, test_nb_model_pred, metric=c('F1','ACC','PRECISION','RECALL'))
+```

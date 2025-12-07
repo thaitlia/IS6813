@@ -1,0 +1,510 @@
+---
+title: 'IS 6813: EDA Assignment'
+author: "Sabrina Lin"
+date: "2025-10-06"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    toc-title: "Contents"
+    embed-resources: true
+execute:
+  include: true
+  eval: true    
+  warning: false
+  message: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(reticulate)
+```
+## Introduction
+
+### Business Problem Statement
+Swire Coca-Cola's MyCoke360 platform has been experiencing instances of cart abandonment, where customers add products to their cart but fail to complete their orders by the next order date. This behavior can lead to lost revenue and operational inefficiencies. Repeated abandonment can be due to a multitude of factors, such as pricing issues or misalignment with customer needs, and understanding these factors is critical to improving order completion and reducing revenue leakage.
+
+### Analytics Approach and Challenges
+
+The goal is to investigate the Google Analytics and order data from MyCoke360 from 5/31/2024 to 5/26/2024, with the focus on identifying patterns and trends that are associated with cart abandonment and recovery. The insights gained from the analysis will help identify high-risk customers and products, estimate the financial impact of cart abandonment, and provide recommended strategies to improve order completion.
+
+The target variable is a binary variable, where a 1 would indicate that a customer is expected to abandon their cart given a specified order window or 0 when they do not abandon their cart given a specified order window. However, the largest challenge has been defining that order window as it changes depending on the frequency and policy start date. A customer can order multiple times throughout the year, so the order window changes and determining which weeks customers abandon and do not abandon their carts has been tricky. 
+
+A large amount of the data is categorical, as such, our team would like to continue into the modeling phase with a rough idea of using a classification model to see if the trends we've uncovered during our EDA phase translate well into that type of prediction model. Our focus is on pattern recognition and tracking habits of customers that tend to abandon their carts. From the EDA itself, it seems like a lot of differences arise in terms of location, with more remote locations struggling. Another aspect we've seen is that the interface of MyCoke360 may be contributing to customers abandoning carts, perhaps an indication that it is a struggle to use for many customers. 
+
+### Questions 
+
+1. How do we calculate order window? Which variables do we need? How can we translate that into a binary predictor?
+
+2. If ANCHOR_DATE is the supposed 'start date' of when the order window begins, is it reasonable to say that a week later is the cut-off date?
+
+3. The materials table has an insane amount of detail - is all of this really necessary or contributes to cart abandonment? It's not like it's harder to order one product over another? Do we even need to use this table? 
+
+4. All pages and events have occurred on the MyCoke360 website correct? 
+
+5. Is PHYSICAL_VOLUME a multiplier of ITEM? 
+
+6. The Visit Plan data table has enough rows to crash R, what is the best sample size to take from that table? (and subsequent other tables)
+
+7. A lot of columns describe one another in either more or less detail - how can we reduce as it seems like colinearity is occurring? 
+
+8. It is easy to assume that locations with high revenue typically won't abandon carts in order to keep up with the demand - is that the case and can we focus on the stores that don't have that? 
+
+9. Need to find ways to bucket and determine standout factors - what is different between the locations that could contribute to an abandoned cart? 
+
+10. Don't forget about interface itself - does mobile v. desktop have a stark enough difference to contribute to an abandoned cart? 
+
+## Description of Data
+
+The data includes 8 CSV files that house detailed information related to MyCoke360 orders and activity. Each file contains information as below:
+
+- google_analytics.csv - Contains information regarding specific website events.
+
+- orders.csv - Tracks customer orders and when they were placed at the material level
+
+- sales.csv - Records financial details of the products sold(Note: products may differ slightly due to out of stocks) 
+
+- visit_plan.csv - Contains historical order placement(visit plan) data for each customer and the anchor date(the day they must order by)
+
+- customer.csv - Provides information on customers such as where they order from and what type of customer channel they are such as restaurant, wholesaler, etc. This table had some collinearity present such as SALES_OFFICE and SALES_OFFICE_DESCRIPTION as well as CUSTOMER_SUB_TRADE_CHANNEL_DESCRIPTION and DISTRIBUTION_MODE_DESCRIPTION columns. 
+
+- cutoff_times.csv - Gives us the specific time of day a customer must have their order in by and exceptions made
+
+- operating_hours.csv - Gives us current information on visit plans
+
+- material.csv - Provides specific information on products such as category, brand, flavor, pack size, and type. Found within the material data is that all items listed have unique MATERIAL_ID, but the combination of the other columns are duplicated. 
+
+## Description of Missing Data
+
+For the most part, there was very few NA's present across all the data tables. Only one column had any missing data for the material.csv. BEV_CAT_DESC was missing for 134 rows. The rest of the rows for these 134 all showed the same trade mark and flavor description but varied in pack type and size. The operating_hours CSV has no missing values and no duplicates and the cutoff_times.csv also has no missing values; however, it has Cutoff times for orders, currently as strings, and shipping duration stored as strings, which need conversion to numeric for analysis.
+
+## Exploratory Visualizations and/or Summary Tables
+
+### Pre-face 
+
+Due to individuals using a combination of Python and R along with the large data sets, for the sake of simplicity, the Python code has been added but commented out. The code has been appended to a separate section in order to provide a quick and clear look at the visualizations. 
+
+### Courtney
+
+![Courtney Graphs 1](Courtney Graphs 1.png)
+
+![Courtney Graphs 2](Courtney Graphs 2.png)
+
+### Tina
+
+![Tina Graphs 1](Tina Graphs 1.png)
+
+![Tina Graphs 2](Tina Graphs 2.png)
+
+### Sabrina 
+
+![Sabrina Graphs 1](Sabrina Graphs 1.png)
+
+![Sabrina Graphs 2](Sabrina Graphs 2.png)
+
+![Sabrina Graphs 3](Sabrina Graphs 3.png)
+
+### Alphy
+
+![Alphy Graphs 1](Alphy Graphs 1.png)
+
+![Alphy Graphs 2](Alphy Graphs 2.png)
+
+## Results 
+
+### Courtney
+
+From the analysis we observed that most MyCoke360 users accessed the platform through their desktop and using Windows OS system, where successful orders slightly outpaced abandoned carts. On the other hand, users who used mobile devices and any other OS system besides Windows showed a higher percentage of cart abandonment. This could indicate that there could be potential issues with smaller devices or application based experiences. In terms of order frequency we observed that customers that had once a week or biweekly orders tend to have less abandoned carts while customers that had orders less than biweekly orders tend to have a higher rate of abandoned carts. 
+
+### Tina
+
+The notable points of the material.csv is the missing data in the BEV_CAT_DESC column, and that all of the MATERIAL_ID are distinctive while the combinations of flavors, packaging and sizes are duplicated, only 67% of these combinations are distinctive.  Flavors have a large affect on volume sold as well as the most common pack type purchased as well. 
+
+### Sabrina 
+
+After playing around with some initial graphs, a sample size of 3,000 rows seemed to provide a relatively robust amount of information to draw conclusions from. The main numeric predictors to work with were NSI_DEAD_NET, ORDER_QUANTITY, and PHYSICAL_VOLUME amongst others. In terms of the Customer data table, this was largely a categorical data table, as seen by the summary table generated. Thus, many of the visualizations generated were box or barplots. Interestingly, the largest Sales Office locations for revenue generation were the Bellevue,WA, Denver, CO, Tacoma, WA, and Tempe, AZ regions. Perhaps, there is a shift in focus more towards the smaller revenue locations for targeting in terms of abandoned carts - it would make sense that larger revenue locations wouldn’t have abandoned carts to begin with to keep up with demand. 
+
+Other interesting things to note with Order Quantity, is MyCoke Legacy is still largely referenced for purchases in comparison to MyCoke360 which could be an indication of interface preference by the customer or more in terms of habit. In the same vein, follow-up is needed with SWIRE on what EDI is as it's nearing the same order quantities as MyCoke360 roughly ~90 to ~110 units. Last thing to note would be that a large distribution of orders are fulfilled via bulk distribution, but other forms such as OFS, rapid delivery, and sideload are not - that may be another area to look into in terms of cart abandonment, perhaps the distribution mode is restricted to more remote areas and they cannot receive bulk orders as easily. 
+
+### Alphy
+
+Most operations occur on a regular schedule, with the majority happening every 4 weeks (2,562 records), followed by weekly operations (2,140 records), and every 2 weeks (1,489 records). Only a small portion, 11 records, follow an every 3 weeks pattern.Most deliveries occur on weekdays, particularly between Tuesday and Friday, with very few scheduled for weekends
+
+The submission deadlines vary between 10:00 AM and 4:00 PM, with the most frequent cutoff windows occurring around 3:00 PM (36), 3:30 PM (27), and 4:00 PM (26).These times suggest a strong operational clustering in the mid-afternoon period.The earlier cutoff times are associated with shorter shipping durations (24–30 hours), whereas later cutoff times correspond to longer shipping windows (48–72 hours).This pattern suggests that regional variations in cutoff scheduling directly influence fulfillment efficiency, where later submission allowances tend to delay shipment cycles.
+
+## Group Member Contributions
+
+Due to the large amount of data SWIRE provided, we decided the best way to analyze everything was to have each group member use the Google Analytics, Orders, and Sales data tables as a core foundation for the other data tables to compare and work with. As such, each team member was designated these tables to expand upon with: 
+
+- Courtney - Visit Plan
+- Alphonsinah - Order Cut Off Times & Operating Hours
+- Sabrina - Customer
+- Tina - Material
+
+Of course, information such as Order Window had to be calculated using Visit Plan or Materials in the Customer table could be found in the Materials table - as such, if information was needed, we could pull from others if we needed to. All visualizations and summary tables from each team member were from the respected individual’s data table designation and we met as a group to share our findings for the next phase. 
+
+## Appendix: Code Used for Visualizations/Summary Tables
+
+### Courtney
+
+```{python, eval=FALSE}
+
+Visual 1:
+import matplotlib.pyplot as plt
+
+status_counts = final_df["order_status"].value_counts()
+
+plt.figure(figsize=(6, 6))
+plt.pie(
+    status_counts,
+    labels=status_counts.index,
+    autopct='%1.1f%%',
+    startangle=90,
+    colors=['lightcoral', 'mediumseagreen']
+)
+plt.title("Overall Cart Abandonment vs Successful Orders", fontsize=14, weight="bold")
+plt.show()
+
+import matplotlib.pyplot as plt
+
+# Count events by device & order status
+device_summary = (
+    final_df.groupby(["DEVICE_CATEGORY", "order_status"])
+    .size()
+    .unstack(fill_value=0)
+)
+
+# Compute percentage of total within each order_status column
+device_pct = device_summary.div(device_summary.sum(axis=0), axis=1) * 100
+
+print("Percent of total transactions per order status:")
+print(device_pct.round(2))
+
+# Plot side-by-side bars (% of total abandoned/successful by device)
+device_pct.plot(
+    kind="bar",
+    figsize=(8, 5),
+    color=["salmon", "seagreen"]
+)
+
+plt.title("% of Total Abandoned Carts vs Successful Orders by Device Type", fontsize=14, weight="bold")
+plt.xlabel("Device Category")
+plt.ylabel("Percent of Total Transactions")
+plt.grid(axis="y", linestyle="--", alpha=0.7)
+plt.legend(title="Order Status")
+plt.tight_layout()
+plt.show()
+
+```
+
+```{python, eval=FALSE}
+
+Visual 2:
+#Hourly abandonment patter
+# Ensure hour column exists
+final_df["hour"] = final_df["EVENT_TIMESTAMP"].dt.hour
+
+# Group by hour and order status
+hourly_abandon = (
+    final_df.groupby(["hour", "order_status"])
+    .size()
+    .unstack(fill_value=0)
+)
+
+# Compute percentages within each order_status category
+hourly_pct = hourly_abandon.div(hourly_abandon.sum(axis=0), axis=1) * 100
+
+# Print results
+print("Percent of each order type by hour of day:\n")
+print(hourly_pct.round(2))
+
+# Plot
+hourly_pct.plot(kind="line", figsize=(10, 5), marker="o")
+
+plt.title("% of Abandoned vs Successful Orders by Hour of Day", fontsize=14, weight="bold")
+plt.xlabel("Hour of Day (EST)")
+plt.ylabel("% of Each Order Type by Hour")
+plt.xticks(range(0, 24))
+plt.grid(True, linestyle="--", alpha=0.7)
+plt.legend(title="Order Status")
+plt.tight_layout()
+plt.show()
+
+```
+
+```{python, eval=FALSE}
+
+Visual 3:
+# Group by frequency and order status
+freq_summary = (
+    final_df.groupby(["FREQUENCY", "order_status"])
+    .size()
+    .unstack(fill_value=0)
+)
+
+# Compute percentage of total transactions by order status
+freq_pct = freq_summary.div(freq_summary.sum(axis=0), axis=1) * 100
+
+print("Percent of total transactions per order status (by Frequency):")
+print(freq_pct.round(2))
+
+# Plot
+freq_pct.plot(
+    kind="bar",
+    figsize=(8, 5),
+    color=["salmon", "seagreen"]
+)
+
+plt.title("% of Total Abandoned Carts vs Successful Orders by Order Frequency", fontsize=14, weight="bold")
+plt.xlabel("Order Frequency Code")
+plt.ylabel("Percent of Total Transactions")
+plt.grid(axis="y", linestyle="--", alpha=0.7)
+plt.legend(title="Order Status")
+plt.tight_layout()
+plt.show()
+
+```
+
+### Tina
+
+```{r, eval=FALSE}
+
+#For the Top 15 flavors by Physical Volume {R} 
+
+material_sales %>%
+  group_by(FLAVOUR_DESC) %>%
+  summarise(Total_Volume = sum(PHYSICAL_VOLUME, na.rm = TRUE)) %>%
+  arrange(desc(Total_Volume)) %>%
+  slice_head(n = 15) %>%
+  ggplot(aes(x = reorder(FLAVOUR_DESC, Total_Volume), y = Total_Volume)) +
+  geom_col(fill = "darkorchid") +
+  coord_flip() +
+  labs(title = "Top 15 Flavors by Physical Volume", x = "Flavor", y = "Volume")
+
+```
+
+```{r, eval=FALSE}
+
+#For the Average NSI by Pack Type 
+
+material_sales %>%
+  group_by(PACK_TYPE_DESC) %>%
+  summarise(Avg_NSI = mean(NSI_DEAD_NET, na.rm = TRUE)) %>%
+  arrange(desc(Avg_NSI)) %>%
+  ggplot(aes(x = reorder(PACK_TYPE_DESC, Avg_NSI), y = Avg_NSI)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Average NSI by Pack Type",
+    x = "Pack Type",
+    y = "Average NSI (Dead Net)"
+  ) +
+  theme_minimal()
+
+```
+
+```{r, eval=FALSE}
+
+#For Average NSI by Calendar Month
+
+#confirm month/year
+material_sales <- material_sales %>%
+  mutate(
+    Month = month(POSTING_DATE, label = TRUE),
+    Year = year(POSTING_DATE)
+  )
+#aggregate nsi by month across year
+monthly_pattern <- material_sales %>%
+  group_by(Month) %>%
+  summarise(Avg_NSI = mean(NSI_DEAD_NET, na.rm = TRUE)) %>%
+  arrange(match(Month, month.abb))  # Ensures calendar order
+
+#Plot 
+ggplot(monthly_pattern, aes(x = Month, y = Avg_NSI)) +
+  geom_line(group = 1, color = "darkorange", size = 1.2) +
+  geom_point(color = "firebrick") +
+  labs(
+    title = "Average NSI by Calendar Month",
+    x = "Month",
+    y = "Average NSI"
+  ) +
+  theme_minimal()
+
+```
+
+### Sabrina 
+
+```{python, eval=FALSE}
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import matplotlib.dates as mdates
+from datetime import datetime
+
+```
+
+```{python, eval=FALSE}
+
+#reading in the necessary csv files
+
+google_analytics = pd.read_csv('google_analytics.csv')
+orders = pd.read_csv('orders.csv')
+sales = pd.read_csv('sales.csv')
+visit_plan = pd.read_csv('visit_plan.csv')
+
+customer = pd.read_csv('customer.csv')
+
+#sampling a random 50,000 from the dataset to work with
+#random_state set to 25 for reproducibility
+
+sampled_google_analytics = google_analytics.sample(n=3000, random_state=25)
+sampled_orders = orders.sample(n=3000, random_state=25)
+sampled_sales = sales.sample(n=3000, random_state=25)
+sampled_visit_plan = visit_plan.sample(n=3000, random_state=25)
+
+customer.rename(columns={'CUSTOMER_NUMBER':'CUSTOMER_ID'}, inplace=True)
+
+ # Inner merge (default): keeps only rows where 'customer_id' exists in both DataFrames
+merged_df_inner = pd.merge(sampled_orders, sampled_google_analytics, on='CUSTOMER_ID', how='inner')
+merged_df_inner = pd.merge(merged_df_inner, sampled_sales, on='CUSTOMER_ID', how='inner')
+merged_df_inner = pd.merge(merged_df_inner, sampled_visit_plan, on='CUSTOMER_ID', how='inner')
+merged_df_inner = pd.merge(merged_df_inner, customer, on='CUSTOMER_ID', how='inner')
+
+
+```
+
+```{python, eval=FALSE}
+
+#First bar plot
+
+# Create the bar plot
+plt.bar(merged_df_inner.ORDER_TYPE, merged_df_inner.ORDER_QUANTITY, color='skyblue') # You can also specify a color
+
+# Add labels and title
+plt.xlabel('Order Type')
+plt.ylabel('Order Quantity')
+plt.title('Order Type v. Quantity')
+plt.xticks(rotation=90, ha='right')
+
+# Display the plot
+plt.show()
+
+```
+
+```{python, eval=FALSE}
+
+#First box plot
+
+# Create the box plot
+plt.figure(figsize=(8, 6)) # Optional: set figure size
+sns.boxplot(x='CUSTOMER_SUB_TRADE_CHANNEL_DESCRIPTION', y='NSI_DEAD_NET', data=merged_df_inner, showfliers=False)
+
+# Add title and labels
+plt.title('Box Plot of NSI DEAD NET by CUSTOMER SUB TRADE CHANNEL DESCRIPTION')
+plt.xlabel('CUSTOMER SUB TRADE CHANNEL DESCRIPTION')
+plt.ylabel('NSI DEAD NET')
+plt.xticks(rotation=90, ha='right')
+
+# Display the plot
+plt.show()
+
+
+```
+
+```{python, eval=FALSE}
+
+#Second box plot
+
+# Create the box plot
+plt.figure(figsize=(8, 6)) # Optional: set figure size
+sns.boxplot(x='DISTRIBUTION_MODE_DESCRIPTION', y='ORDER_QUANTITY', data=merged_df_inner, showfliers=False)
+
+# Add title and labels
+plt.title('Box Plot of ORDER QUANTITY by DISTRIBUTION MODE DESCRIPTION')
+plt.xlabel('DISTRIBUTION MODE DESCRIPTION')
+plt.ylabel('ORDER QUANTITY')
+plt.xticks(rotation=90, ha='right')
+
+# Display the plot
+plt.show()
+
+```
+
+```{python, eval=FALSE}
+
+#Summary table 
+
+summary_customer = customer.describe(include='object')
+print("\nSummary for All Columns:")
+print(summary_all)
+
+```
+
+### Alphy
+
+```{python, eval=FALSE}
+
+import pandas as pd  
+
+# Convert dates
+operating_hours['CALLING_ANCHOR_DATE'] = pd.to_datetime(operating_hours['CALLING_ANCHOR_DATE'], errors='coerce')
+
+
+# Missing values
+print("Missing values per column:")
+print(operating_hours.isnull().sum())
+
+
+# Duplicates
+print("\nNumber of duplicate rows:")
+print(operating_hours.duplicated().sum())
+operating_hours['FREQUENCY'].value_counts().plot(kind='bar', figsize=(8,4), title='Operating hours Distribution ')
+
+```
+
+```{python, eval=FALSE}
+
+cutoff_times['CUTOFFTIME_CLEAN'] = cutoff_times['CUTOFFTIME__C'].astype(str).str.strip()
+
+
+# Convert to datetime
+cutoff_times['CUTOFFTIME_DT'] = pd.to_datetime(cutoff_times['CUTOFFTIME_CLEAN'], errors='coerce')
+
+
+# Extract only the time
+cutoff_times['CUTOFFTIME_ONLY'] = cutoff_times['CUTOFFTIME_DT'].dt.time
+
+
+# Check results
+print("Successfully parsed times:", cutoff_times['CUTOFFTIME_ONLY'].notnull().sum())
+print("Failed parsing:", cutoff_times['CUTOFFTIME_ONLY'].isnull().sum())
+
+
+# Convert 'SHIPPING_CONDITION_TIME' to numeric hours
+cutoff_times['SHIPPING_HOURS'] = cutoff_times['SHIPPING_CONDITION_TIME'].str.replace("hrs","").astype(int)
+
+
+# Quick check
+print(cutoff_times[['SHIPPING_CONDITION_TIME', 'SHIPPING_HOURS']].head())
+
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+
+sns.boxplot(x='CUTOFFTIME_ONLY', y='SHIPPING_HOURS', data=cutoff_times)
+plt.xticks(rotation=45)
+plt.title("Shipping Hours vs Cutoff Times")
+plt.show()
+
+```

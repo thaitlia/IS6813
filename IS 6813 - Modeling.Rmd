@@ -1,0 +1,967 @@
+---
+title: 'IS 6813: Modeling'
+author: "Sabrina Lin, Tina Young, Courtney Yoshimoto, Alphonsinah Ototo"
+date: "2025-10-30"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    toc-title: "Contents"
+    embed-resources: true
+execute:
+  include: true
+  eval: true    
+  warning: false
+  message: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Building on insights from our EDA, our modeling aims to predict and understand customer cart abandonment behaviors within the MyCoke360 platform. Using integrated data from Google Analytics, Orders, Visit Plans, and Cutoff Times, we trained and validated models to help identify customers and product types most at risk of abandonment. Our analysis emphasizes predictive accuracy, interpretability, and actionable business outcomes tied to our success metrics, including reducing the abandonment rate, increasing recovery revenue, identifying high-risk packages, and enhancing customer engagement through targeted interventions. Together, these models form a foundation for operational and marketing strategies that can lead to increased revenue and enhance the customer experience on MyCoke360.
+
+## Data Preparation
+
+As reviewed in the initial Exploratory Data Analysis (EDA), the biggest difficulty was calculating abandonment rate as the order window was difficult to specify given the ANCHOR_DATE, policy changes, frequency, and en masse transactional data from the google_analytics data table. At first, we were getting largely disproportionate rates leading to a 90% abandoned to 10% not abandoned cart ratio. This intuitively does not make sense as in order for these businesses to make a profit, they would need to be ordering products to meet supply and demand. However, after multiple rehashes we were able to get a better ratio of 61% not abandoned to 39% abandoned, making more intuitive sense in terms of the reformat.
+
+Getting the abandoned cart rate was a lengthy process with multiple assumptions – the code has been added to the Appendix but this section will serve as the explanation behind the decisions and assumptions made to the final output csv to be used for modeling for the entire group.
+
+Decision 1: We cannot randomly sample x-number of rows from the google_analytics table. Instead, we have to randomly sample x-number of CUSTOMER_ID’s and pull their entire transactional MYCOKE360 history from the google_analytics table. If we were to sample x-number of rows, that’s not representative of a customer’s habits, which would be the unit of analysis if an intervention was applied.
+
+For example, let’s say customer-Y orders frequently and places multiple orders within the same order-by window – that will most likely be over-represented in the data whereas customer-X orders once per order-by window – either way for a given order-by window, both customer-Y and customer-X would be considered ‘not abandoned’, but with our prior way of parsing the data, customer-Y would have several ‘not abandoned’ markers as they were placing multiple orders – thus throwing off the ratio and making it inaccurate. Thereby, we created a list of CUSTOMER_ID’s and sampled the google_analytics, visit_plan, orders, and sales table via the CUSTOMER_ID and pulled all respective rows attached to that CUSTOMER_ID.
+ 
+Assumption 1: Essentially the google_analytics table has every single transaction a customer has done on the MYCOKE360 site – so a customer could make several button-clicks and page-views but never make an order on the attached date, in this case, EVENT_DATE. The only time where we considered a purchase successful was when the EVENT_PAGE_NAME value was MyCoke Orders - Purchase Success. For all the button-clicks, page views etc. because several of these are logged for a specific date, it was creating another instance of disproportion as technically, these all can be reduced to one specific instance on the day-of for a customer which we classified as ‘no purchase made that day’. Thus, we are assuming, if there is no log of MyCoke Orders - Purchase Success. for the specified day, then all other transactions can be reduced to that one instance of ‘no purchase’, thereby reducing the logs for a go, no-go toggle on a CUSTOMER_ID – EVENT_DATE unique instance.
+ 
+Decision 2:  Now, the google_analytics table only houses transactions made on the MYCOKE360 website, thus for the orders table all transactions that had ORDER_TYPE as MYCOK360 were removed. Since we sampled the orders table for the same CUSTOMER_ID as the google_analytics table, removal would ensure we did not double up on the same transaction. Of course, an order place would be a successful purchase and not an abandoned cart – so each transaction post MYCOKE360 removal (leaving MY COKE LEGACY, CALL CENTER, SALES REP, etc.) was labeled as such. The orders table was then appended to the google_analytics table via CUSTOMER_ID, the EVENT_DATE, and made_a_purchase (our abandoned v. not abandoned target variable designated column).
+ 
+Assumption 2: Here’s where the trickiest part came in – a single customer has several order-by dates within the specified timeline of 5/31/2024 to 5/26/2025. How do we match the transactions from the google_analytics and orders table on a specific date and say its within one of those several order-by dates throughout the year? Via a custom function with a tolerance day built in. The function was designed for a CUSTOMER_ID, on the beginning of their policy start date, based on the frequency of the weeks, would create a list of order-by dates for the customer. Assuming that within the specified timeline, this would generate all possible order-by dates and what we’d assume all the possible order windows for a given customer.
+
+Decision 3: Now, the google_analytics/orders table was outer joined onto the order_by dates table generated for a customer because realistically, what we need to know is out of all the possible order-by dates for a given CUSTOMER_ID between 5/31/2024 to 5/26/2025, which ones did they make a purchase (not abandoned) and which did they go onto the site and didn’t make a purchase (abandoned)? Using the ‘nearest’ hyperparameter in pandas function merge_asof(), a tolerance of 7 days was built in to approximate whether an EVENT_DATE from the google_analytics/orders table was within the order_by dates generated from the function – if a date was within 7 days (+/-) of the order-by dates, the transaction would line up and would be considered as ‘abandoned’ or ‘not abandoned’ via the ‘made_a_purchase’ column and the subsequent information for either the MYCOKE360 browsing, MYCOKE360 purchase complete, or other order transaction as well. The cut-off timing may be off, but assuming no seasonality trends, then the tolerance would give enough wiggle that no matter what – a ‘made_a_purchase’ would fulfill one of the order-by dates.
+
+## Success Metric 1 
+
+Reduced Abandonment Rate: Achieve a 10% reduction in cart abandonment rate within the first 6 months of implementation by Tina Young
+
+### Modeling Process & Performance
+
+Thinking of ways to improve abandonment without a website overhaul includes an email/SMS/call campaign. To do this data was simulated and data was further parsed to extract hourly and daily patterns. The data that was cleaned 75 carts were identified as being abandoned and in the simulated scenario was able to recover 8 of them into purchases. This resulted in a lift in conversion rate from 60.66% to 64.6%, representing a 6.48% improvement. This improvement does show a starting benchmark to outreach strategies. 
+
+## Success Metric 2
+
+Recovery Rate: Increase revenue by at least $3M annually through recovery of abandoned carts and improved conversion by Alphy Ototo
+
+### Modeling Process
+
+To predict and improve cart rec overy, we developed a logistic regression model using only pre-purchase behavioral and temporal features. We had to handle a bit of data leakage to avoid impairing the predictive ability of our model. The pipeline included imputation, one-hot encoding, and feature scaling, and was trained using a 75/25 time-based split to simulate real-world deployment. To ensure generalizability and prevent the same customer from appearing in both training and validation sets, we did a Five-fold grouped cross-validation. After establishing the predictive model, we applied a T-Learner uplift modeling framework to estimate the incremental impact of interventions such as reminder emails or sales representative outreach on recovery likelihood.
+
+### Model Performance
+
+The logistic regression model achieved a mean cross-validated ROC-AUC of approximately 0.78 and a time-based test ROC-AUC of 0.97, demonstrating strong ability to rank customers by their likelihood of recovering a cart. On the holdout sample, the model reached 100 % recall, indicating that it successfully identified all recoveries in the test period. While this perfect recall is encouraging, it is likely optimistic due to the short time window between train and test data. The high ROC-AUC confirms the model’s strength in prioritizing at-risk customers for timely interventions.
+
+### Results
+
+Analysis of feature coefficients revealed that behavioral and timing factors are the strongest determinants of cart recovery. Customers with larger carts (items_count) and those engaging during off-hours or weekends are less likely to complete their purchases, while weekday or daytime activity corresponds with higher recovery odds. Mobile users also showed lower recovery likelihood, suggesting that maybe checkout friction on mobile devices may hinder conversions. Although actions such as add_to_cart and begin_checkout indicate purchase intent, their negative coefficients imply that many customers still abandon at these stages
+
+The uplift analysis showed that the top 30 % of customers ranked by uplift score had the highest incremental recovery potential, with scores ranging from 0.25 – 0.43. This suggests that focused reminders or sales follow-ups for these customers could drive meaningful recovery gains.
+
+![Alphy Graphs 1 Modeling](Alphy Graphs 1 Modeling.png)
+
+## Success Metric 3
+
+High Risk Package Identification: Identify at least 3 packages consistently over-represented in abandoned carts and enabling corrective actions by Courtney Yoshimoto
+
+### Modeling Process
+
+The goal of the package-level analysis was to identify which pack types, brands, and categories were high risk in abandoned carts compared to successful ones. First, we used our data set from our data preparation that had each customer order window labeled as abandoned or successful and merged that data to the material data table in order to bring in package information. 
+For each one of the identified package descriptions we calculated the total number of each in abandoned carts and successful orders within a window. We then calculated the percentage of presence within each and the difference between the presence in abandoned carts and successful ones. If we were seeing a positive difference then that would indicate that there was more of a presence in the abandoned carts and indicative of a high risk package. 
+A decision tree classifier was selected for its ability to be able to capture nonlinear relationships. The modeling dataset used contained one row per product within a customer order window. We then encoded each categorical feature into a numeric input for the model. The data was then split into 70/39 using sampling. The model was then trained using a maximum depth of 4 and minimum of 50 samples per leaf.
+
+### Model Performance
+
+The model's performance was evaluated on the testing set using classification metrics. The overall accuracy was 79%. When looking at the precision abandoned as at 56% while successful was at 83% and the recall for abandoned was 40% while the recall for successful was 91%. This tells us that the model has strong predictive power for successful orders but was not good at predicting if order would become abandoned. This large difference suggests that there is an imbalance in the data, where there are significantly more successful orders than abandoned carts in the data. The next steps would be trying class weighting or adding other variables that have an impact on an abandoned cart or successful order.
+
+### Results
+
+From the data sampled the package that had the largest risk was Bag_in_Box showing that it was prevalent in 22% of abandoned carts versus only being in 9% of successful ones. On the other hand the package that was more likely to be in a successful cart was Plastic Bottle - Other. The brand that was observed most in abandoned carts was Oliver Originals while the brand observed most in successful carts was Lucy & Co. Lastly, the category that appeared most in abandoned carts was Core Sparkling while Sports Drinks highly out weighted in successful carts.
+
+![Courtney Graphs 1 Modeling](Courtney Graphs 1 Modeling.png)
+![Courtney Graphs 2 Modeling](Courtney Graphs 2 Modeling.png)
+![Courtney Graphs 3 Modeling](Courtney Graphs 3 Modeling.png)
+
+## Success Metric 4
+
+Customer Engagement: Improve customer checkout completion rates by 15% among customers targeted with reminders or interventions by Sabrina Lin
+
+### Modeling Process
+
+After the re-hash of the target variable column, the final output was much smaller than prior as a lot of repeated transaction were removed and pre-selection of CUSTOMER_ID was used. Due to that, I used Naïve Bayes for classification modeling instead as it was a simple and fast way of training smaller data sets. Rather than Random Forest or C50 Decision Tree, which were attempted, I decided it would make more sense for Naïve Bayes as it seemed that the predictors were fairly independent of each other, especially in terms of the order type – whether it was by MyCoke360, Sales Rep, etc. or by means of ordering such as Windows, Mobile, etc. – which is what Naïve Bayes assumes. I set up my model as made_a_purchase ~ DEVICE_CATEGORY + DEVICE_MOBILE_BRAND_NAME + DEVICE_OPERATING_SYSTEM + ORDER_TYPE and the output showed distinct conditional probabilities. Before delving into that, it should be noted that another assumption we made is that for a given order-by window, if a customer put in an order not on MyCoke360 then that fulfilled the criteria and only that record showed. So, it is possible that a customer could order on both the site and other means in the window, but for simplicity we are assuming one or the other.
+
+Reminder that made_a_purchase = 1 is not abandoned, made_a_puchase = 0 is abandoned. For DEVICE_OPERATING_SYSTEM, around 69% of abandoned carts are using Windows and likewise, for DEVICE_CATEGORY, those same users are using their desktops. The transaction where orders are successful show a large proportion being ordered via a sales rep as seen in the ORDER_TYPE at 39%.
+
+![Sabrina Graph 1 Modeling](Sabrina Graph 1 Modeling.png)
+
+### Modeling Performance
+
+Finally, taking a look at the model performance with the train metrics above and test metrics below, the performance is pretty matched across the board meaning the model didn’t overfit the train data. In terms of F1 (harmonic mean of precision and recall), it’s roughly ~82% which is a fairly good measure of accuracy in terms of correct predictions. In terms of precision, which measures the accuracy of the positive predictions, specifically the proportion of transactions predicted as not abandoned that were actually not abandoned, its about ~70% which is considered fairly good, especially in terms of a less critical application such as e-commerce.
+
+![Sabrina Graph 2 Modeling](Sabrina Graph 2 Modeling.png)
+
+### Results
+
+Taking all this in, with the framing of increasing customer satisfaction, SWIRE should consider re-adapting their MyCoke360 website to perhaps be more user-friendly, if that is not possible, consider updating the MyCoke Legacy website interim. Otherwise, it seems as though their mobile format is easier to use and the company could potentially benefit from an app catered to additonal orders for their customers. 
+
+## Group Members & Their Contributions
+
+Once again, due to the large amount of data SWIRE provided, we decided the best way to analyze everything was to have each group member tackle a different success metric we specified in the Business Problem Statement. As such, each team member’s modeling was tailored around these subjects: 
+
+- Tina - Success Metric 1: Reduced Abandonment Rate: Achieve a 10% reduction in cart abandonment rate within the first 6 months of implementation
+
+- Alphonsinah - Success Metric 2: Recovery Rate: Increase revenue by at least $3M annually through recovery of abandoned carts and improved conversion
+
+- Courtney - Success Metric 3: High Risk Package Identification: Identify at least 3 packages consistently over-represented in abandoned carts and enabling corrective actions
+
+- Sabrina - Success Metric 4: Customer Engagement: Improve customer checkout completion rates by 15% among customers targeted with reminders or interventions
+
+Due to the re-hashing of the data preparation to calculate a more accurate target variable abandoned cart rate, while each team member did attempt to get to a better state, a large part of re-calculation and re-editing the code was done by Sabrina and Courtney with the final code being Sabrina’s script (see Appendix), with Tina, Alphy, and Courtney helping to validate and make sure the logic made sense in terms of abandoned cart rate. 
+
+## Appendix
+
+### Data Preparation Script
+
+```{python, eval=FALSE}
+
+#%%
+#libraries
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+#import seaborn as sns
+import matplotlib.dates as mdates
+from datetime import datetime, timedelta, date, time
+import random
+
+#%%
+
+#reading in the necessary csv files - this section has the massive files
+
+google_analytics = pd.read_csv('google_analytics.csv')
+orders = pd.read_csv('orders.csv')
+sales = pd.read_csv('sales.csv')
+visit_plan = pd.read_csv('visit_plan.csv')
+
+#%%
+
+#reading in the necessary csv files - this section has the smaller files files
+
+customer = pd.read_csv('customer.csv')
+cutoff_times = pd.read_csv('cutoff_times.csv')
+
+material = pd.read_csv('material.csv') #not using material for my success metric
+operating_hours = pd.read_csv('operating_hours.csv') #not using as it contains the most
+#recent anchor date info and I need it for a whole year which is what the visit plan 
+#table has it as
+
+#%%
+
+#calling out the specific customer ids to sample - randomly chosen
+
+specific_customer_ids = customer['CUSTOMER_NUMBER'].to_list()
+specific_customer_ids = random.sample(specific_customer_ids, 50)
+
+#from the massive data tables - pulling the specific customer id information, all rows 
+
+sampled_google_analytics = google_analytics[google_analytics['CUSTOMER_ID'].isin(specific_customer_ids)]
+sampled_visit_plan = visit_plan[visit_plan['CUSTOMER_ID'].isin(specific_customer_ids)]
+sampled_orders = orders[orders['CUSTOMER_ID'].isin(specific_customer_ids)]
+sampled_sales = sales[sales['CUSTOMER_ID'].isin(specific_customer_ids)]
+
+#%%
+
+#sort the sampled data tables just to understand how the groupings work in each one
+sorted_google_analytics = sampled_google_analytics.sort_values(by='CUSTOMER_ID')
+sorted_orders = sampled_orders.sort_values(by='CUSTOMER_ID')
+sorted_sales = sampled_sales.sort_values(by='CUSTOMER_ID')
+sorted_visit_plan = sampled_visit_plan.sort_values(by='CUSTOMER_ID')
+
+#%%
+
+#this section is to convert local cutoff times to EST as per the ppt
+
+#extract the last two characters and create a new column to show state
+cutoff_times['STATE'] = cutoff_times['SALES_OFFICE'].str.slice(-2)
+
+#convert 'time' column to datetime objects (handling only time part)
+#cutoff_times['CUTOFFTIME__C'] = pd.to_datetime(cutoff_times['CUTOFFTIME__C'], format='%H:%M:%S').dt.time
+
+#convert cutofftimes to EST as they are local to customer
+cutoff_times['adjusted_time'] = cutoff_times['CUTOFFTIME__C']
+
+#add two hours to 'adjusted_time' where 'STATE' is a state that lies in an MST zone
+#convert time objects back to datetime for calculation, then extract time again
+cutoff_times.loc[cutoff_times['STATE'] == 'CO', 'adjusted_time'] = \
+    (pd.to_datetime(cutoff_times.loc[cutoff_times['STATE'] == 'CO', 'adjusted_time'].astype(str)) + 
+     pd.Timedelta(hours=2)).dt.time
+    
+cutoff_times.loc[cutoff_times['STATE'] == 'UT', 'adjusted_time'] = \
+    (pd.to_datetime(cutoff_times.loc[cutoff_times['STATE'] == 'UT', 'adjusted_time'].astype(str)) + 
+     pd.Timedelta(hours=2)).dt.time
+    
+cutoff_times.loc[cutoff_times['STATE'] == 'ID', 'adjusted_time'] = \
+    (pd.to_datetime(cutoff_times.loc[cutoff_times['STATE'] == 'ID', 'adjusted_time'].astype(str)) + 
+     pd.Timedelta(hours=2)).dt.time
+
+cutoff_times.loc[cutoff_times['STATE'] == 'NE', 'adjusted_time'] = \
+    (pd.to_datetime(cutoff_times.loc[cutoff_times['STATE'] == 'NE', 'adjusted_time'].astype(str)) + 
+     pd.Timedelta(hours=2)).dt.time
+
+cutoff_times.loc[cutoff_times['STATE'] == 'WY', 'adjusted_time'] = \
+    (pd.to_datetime(cutoff_times.loc[cutoff_times['STATE'] == 'WY', 'adjusted_time'].astype(str)) + 
+     pd.Timedelta(hours=2)).dt.time
+    
+cutoff_times.loc[cutoff_times['STATE'] == 'AZ', 'adjusted_time'] = \
+    (pd.to_datetime(cutoff_times.loc[cutoff_times['STATE'] == 'AZ', 'adjusted_time'].astype(str)) + 
+     pd.Timedelta(hours=2)).dt.time    
+    
+cutoff_times.loc[cutoff_times['STATE'] == 'NM', 'adjusted_time'] = \
+    (pd.to_datetime(cutoff_times.loc[cutoff_times['STATE'] == 'NM', 'adjusted_time'].astype(str)) + 
+     pd.Timedelta(hours=2)).dt.time    
+    
+#add three hours to 'adjusted_time' where 'STATE' is a state that lies in an PST zone
+#convert time objects back to datetime for calculation, then extract time again
+cutoff_times.loc[cutoff_times['STATE'] == 'NV', 'adjusted_time'] = \
+    (pd.to_datetime(cutoff_times.loc[cutoff_times['STATE'] == 'NV', 'adjusted_time'].astype(str)) + 
+     pd.Timedelta(hours=3)).dt.time    
+    
+cutoff_times.loc[cutoff_times['STATE'] == 'OR', 'adjusted_time'] = \
+    (pd.to_datetime(cutoff_times.loc[cutoff_times['STATE'] == 'OR', 'adjusted_time'].astype(str)) + 
+     pd.Timedelta(hours=3)).dt.time 
+    
+cutoff_times.loc[cutoff_times['STATE'] == 'WA', 'adjusted_time'] = \
+    (pd.to_datetime(cutoff_times.loc[cutoff_times['STATE'] == 'WA', 'adjusted_time'].astype(str)) + 
+     pd.Timedelta(hours=3)).dt.time 
+    
+#%%
+
+#per the ppt, joining cutoff times to visit plan on SALES_OFFICE, SHIPPING_CONDITION_TIME
+#and DISTRIBUTION_MODE
+
+#creating dictionary so all data is encoded the same way across the tables
+appendix_distribution_mode = {'OFS':'OF','Rapid Delivery':'RD','E Pallet':'EZ',
+                              'Sideload':'SL','Night Sideload':'NS','Full Service':'FS',
+                              'Night Rapid Delivery':'NR','Night OFS':'NO',
+                              'Special Events':'SE','Bulk Distribution':'BK',
+                              'Tell Sell':'TS','Nights Bulk':'NB'}
+
+#need to update cutoff_times DISTRIBUTION_MODE to the abbreviations above to match visit_plan table
+cutoff_times['DISTRIBUTION_MODE'] = cutoff_times['DISTRIBUTION_MODE'].replace(appendix_distribution_mode)
+
+#need to update cutoff_times to numeric hours to match visit_plan table and update column name
+cutoff_times['SHIPPING_CONDITION_TIME'] = cutoff_times['SHIPPING_CONDITION_TIME'].str[:2]
+cutoff_times.rename(columns={'SHIPPING_CONDITION_TIME':'SHIPPING_CONDITIONS_DESC'}, inplace=True)
+
+#need to update visit_plan to the abbreviations above
+sampled_visit_plan['SHIPPING_CONDITIONS_DESC'] = sampled_visit_plan['SHIPPING_CONDITIONS_DESC'].str[:2]
+
+#need to update cutoff_times column name to match visit_plan
+cutoff_times.rename(columns={'SALES_OFFICE':'SALES_OFFICE_DESC'}, inplace=True)
+
+#merge the cutoff_times and sampled_visit_plan tables together - inner join
+merged = pd.merge(sampled_visit_plan, cutoff_times, on=['SALES_OFFICE_DESC',
+                                                'SHIPPING_CONDITIONS_DESC',
+                                                'DISTRIBUTION_MODE'], how='inner')
+
+#%%
+
+#sort the sampled data tables just to understand how the groupings work in each one
+sorted_merged = merged.sort_values(by='CUSTOMER_ID')
+
+#%%
+
+#removing duplicate column information in customer table and merging with merged table
+customer = customer.drop('SALES_OFFICE', axis=1)
+customer = customer.drop('SALES_OFFICE_DESCRIPTION', axis=1)
+customer = customer.drop('DISTRIBUTION_MODE_DESCRIPTION', axis=1)
+customer = customer.drop('SHIPPING_CONDITIONS_DESCRIPTION', axis=1)
+
+customer.rename(columns={'CUSTOMER_NUMBER':'CUSTOMER_ID'}, inplace=True)
+
+merged = pd.merge(merged, customer, on=['CUSTOMER_ID'], how='inner')
+
+#%%
+
+#sort the sampled data tables just to understand how the groupings work in each one
+sorted_merged = merged.sort_values(by='CUSTOMER_ID')
+
+#%%
+
+#NOT USING THIS SECTION FOR ANYTHING CURRENTLY - PULL SALES IN LATER?
+
+#removing unwanted columns in sales table and merging with merged table - I don't want it for my
+#purposes so omitting
+sampled_sales = sampled_sales.drop('POSTING_DATE', axis=1)
+sampled_sales = sampled_sales.drop('MATERIAL_ID', axis=1)
+sampled_sales = sampled_sales.drop('GROSS_PROFIT_DEAD_NET', axis=1)
+
+#%%
+
+#combining google analytics table with orders assuming that CREATED_DATE_UTC in
+#the orders table matches up with the google analytics table EVENT_TIMSTAMP
+
+#removing unwanted columns in orders table and merging with google analytics
+
+sampled_orders = sampled_orders.drop('CREATED_DATE_UTC', axis=1)
+sampled_orders = sampled_orders.drop('PLANT_ID', axis=1)
+
+#%%
+
+
+
+#Calculating Order Window
+
+#%%
+
+#using the merged sampled_visit_plan and cutoff_times table from above
+
+#Getting the most recent anchor date for each customer
+sampled_visit_plan = merged
+
+#convert 'ANCHOR_DATE' to datetime objects
+sampled_visit_plan['ANCHOR_DATE'] = pd.to_datetime(sampled_visit_plan['ANCHOR_DATE'])
+
+#find the most recent date for each customer
+most_recent_dates = sampled_visit_plan.groupby('CUSTOMER_ID')['ANCHOR_DATE'].max()
+
+#merge back to the original DataFrame (optional)
+sampled_visit_plan = sampled_visit_plan.merge(most_recent_dates.rename('MostRecentOrderDate'), on='CUSTOMER_ID', how='left')
+
+#%%
+
+#need to change 'Every Week On' and 'Every Second Week On' and etc. to a numeric value
+sampled_visit_plan['FREQUENCY'] = sampled_visit_plan['FREQUENCY'].replace('Every Week On', 1)
+sampled_visit_plan['FREQUENCY'] = sampled_visit_plan['FREQUENCY'].replace('Every Second Week On', 2)
+sampled_visit_plan['FREQUENCY'] = sampled_visit_plan['FREQUENCY'].replace('Every Third Week On', 3)
+sampled_visit_plan['FREQUENCY'] = sampled_visit_plan['FREQUENCY'].replace('Every Fourth Week On', 4)
+sampled_visit_plan['FREQUENCY'] = sampled_visit_plan['FREQUENCY'].replace('Every Fifth Week On', 5)
+sampled_visit_plan['FREQUENCY'] = sampled_visit_plan['FREQUENCY'].replace('Every Sixth Week On', 6)
+sampled_visit_plan['FREQUENCY'] = sampled_visit_plan['FREQUENCY'].replace('Every Seventh Week On', 7)
+sampled_visit_plan['FREQUENCY'] = sampled_visit_plan['FREQUENCY'].replace('Every Eighth Week On', 8)
+sampled_visit_plan['FREQUENCY'] = sampled_visit_plan['FREQUENCY'].replace('Every Ninth Week On', 9)
+sampled_visit_plan['FREQUENCY'] = sampled_visit_plan['FREQUENCY'].replace('Every Tenth Week On', 10)
+
+#convert frequency column to numeric 
+sampled_visit_plan['FREQUENCY'] = pd.to_numeric(sampled_visit_plan['FREQUENCY'])
+
+#%%
+
+#Calculating order window by finding a range of dates from ANCHOR_DATE and then the periodic 
+#frequency
+sampled_visit_plan['end_date'] = sampled_visit_plan['ANCHOR_DATE'] + pd.to_timedelta(sampled_visit_plan['FREQUENCY'], unit='W')
+
+#%%
+
+#continuation of above
+
+#need a dummy date for the adjusted_time column in order to convert to datetime, then
+#I will extract the time needed
+
+my_date = date(2025, 10, 25)
+
+#combine them to create a dummy datetime object
+#combine the date and time, then convert to datetime objects
+sampled_visit_plan['adjusted_time_dummy'] = pd.to_datetime(my_date.isoformat() + ' ' + sampled_visit_plan['adjusted_time'].astype(str))
+
+sampled_visit_plan['adjusted_time_dummy'] = pd.to_datetime(sampled_visit_plan['adjusted_time_dummy'])
+
+#extract date from 'datetime_col_with_date' and update the time with the time from
+#the adjusted_time_dummy table
+
+sampled_visit_plan['end_date_time'] = sampled_visit_plan.apply(lambda row: row['end_date'].replace(
+    hour=row['adjusted_time_dummy'].hour,
+    minute=row['adjusted_time_dummy'].minute,
+    second=row['adjusted_time_dummy'].second,
+    microsecond=row['adjusted_time_dummy'].microsecond
+   ), axis=1)
+
+#%%
+
+#determining if customer made a purchase
+
+#replace NaN values in 'EVENT_PAGE_NAME' with "Not Available"
+sampled_google_analytics['EVENT_PAGE_NAME'] = sampled_google_analytics['EVENT_PAGE_NAME'].fillna('not available')
+
+substring_to_find = 'Purchase Success'
+sampled_google_analytics['made_a_purchase'] = np.where(sampled_google_analytics['EVENT_PAGE_NAME'].str.contains(substring_to_find, case=False), 1, 0)
+
+#%%
+
+#sort the sampled data tables just to understand how the groupings work in each one
+sorted_google_analytics = sampled_google_analytics.sort_values(by=['CUSTOMER_ID', 'EVENT_DATE'])
+
+#%%
+
+#in the sampled google analytics table - several transaction in one day - give me unique for 
+#CUSTOMER_ID, EVENT_DATE, and made_a_purchase - want both for information for modeling and 
+#prediction
+
+#also if order by date never had any transaction to begin with then customer never even
+#attempted to use MyCoke360 to order or otherwise - so does not count as abandoned
+
+sampled_google_analytics = sampled_google_analytics.drop_duplicates(subset=['CUSTOMER_ID', 'EVENT_DATE', 'made_a_purchase'])
+
+#%%
+
+#sort the sampled data tables just to understand how the groupings work in each one
+sorted_google_analytics = sampled_google_analytics.sort_values(by=['CUSTOMER_ID', 'EVENT_DATE'])
+
+#%%
+
+def calculate_customer_dates(customer_data):
+    
+    all_customer_dates = []
+    
+    for index, row in customer_data.iterrows():
+        customer_id = row['CUSTOMER_ID']
+        start_date = pd.to_datetime(row['end_date_time'])
+        weekly_frequency = row['FREQUENCY']
+        
+        #define the overall data range for filtering
+        start_2024 = pd.to_datetime('2024-05-31')
+        end_2025 = pd.to_datetime('2025-05-26')
+        
+        num_weeks_to_generate = int((end_2025 - start_date).days / 7) + 52
+        
+        if num_weeks_to_generate < 0:
+            num_weeks_to_generate = 0
+        
+        dates_for_customer = pd.date_range(start=start_date, 
+                                           periods=num_weeks_to_generate * weekly_frequency + 1, 
+                                           freq=f'{7/weekly_frequency}D')
+        
+        filtered_dates = dates_for_customer[(dates_for_customer >= start_2024) & (dates_for_customer <= end_2025)]
+        
+        for date in filtered_dates:
+            all_customer_dates.append({'CUSTOMER_ID': customer_id, 'date': date})
+    
+    return pd.DataFrame(all_customer_dates)
+
+
+#taking one unique instance of each CUSTOMER_ID in the sample_visit_plan - function will auto
+#cut it between the dates I want
+unique_sampled_visit_plan = sampled_visit_plan.drop_duplicates(subset=['CUSTOMER_ID'])
+
+customer_date_ranges = calculate_customer_dates(unique_sampled_visit_plan)
+
+#%%
+
+#appending orders to the table for more accounts of not abandoned carts - just used 
+#different means of creating an order
+
+#need to drop rows where MYCOKE360 was used as that is accounted for in the google_analytics table
+column_to_search = 'ORDER_TYPE'
+substring_to_detect = 'MYCOKE360'
+
+#drop rows where the substring is found in the specified column
+#the '~' inverts the boolean Series, keeping rows where the substring is NOT found
+clean_sampled_orders = sampled_orders[~sampled_orders[column_to_search].str.contains(substring_to_detect, na=False)]
+
+#CREATED_DATE_EST is the same as EVENT_DATE in the google_analytics table (imo)
+clean_sampled_orders = clean_sampled_orders.rename(columns={'CREATED_DATE_EST': 'EVENT_DATE'})
+
+#create a column as every order is made_a_purchase =1 
+clean_sampled_orders['made_a_purchase'] = 1
+
+#join the cleaned_sampled_orders table with the sorted_google_analytics table
+#any missing info from either or will be a inserted as NA
+join_sampled_ga_orders = pd.merge(sorted_google_analytics,
+                                  clean_sampled_orders, 
+                                  on=['CUSTOMER_ID', 'EVENT_DATE', 'made_a_purchase'], 
+                                  how='outer')
+
+#%%
+
+df1 = join_sampled_ga_orders
+df1 = df1.rename(columns={'EVENT_DATE':'event_date_df1'})
+
+df2 = customer_date_ranges
+df2 = df2.rename(columns={'date':'transaction_date_df2'})
+
+df1['event_date_df1'] = pd.to_datetime(df1['event_date_df1'])
+df2['transaction_date_df2'] = pd.to_datetime(df2['transaction_date_df2'])
+
+df2_sorted = df2.sort_values(by='transaction_date_df2')
+df1_sorted = df1.sort_values(by='event_date_df1')
+
+merged_df = pd.merge_asof(
+    df2_sorted,
+    df1_sorted,
+    left_on='transaction_date_df2',
+    right_on='event_date_df1',
+    by='CUSTOMER_ID',
+    direction='nearest',
+    tolerance=pd.Timedelta('7 days')
+    )
+
+sorted_merged_df = merged_df.sort_values(by=['CUSTOMER_ID','transaction_date_df2'])
+
+#%%
+
+cleaned_sorted_merged_df = sorted_merged_df.dropna(subset=['made_a_purchase'])
+
+#calculate the proportions of each value in 'made_a_purchase'
+proportions = sorted_merged_df['made_a_purchase'].value_counts(normalize=True)
+
+#%%
+
+#replace all NaN values with "Not Available"
+cleaned_sorted_merged_df = cleaned_sorted_merged_df.fillna('not available given order type')
+
+cleaned_sorted_merged_df.to_csv('IS 6813 Final Output for Modeling.csv', index=False)
+
+#%%
+
+```
+
+### Tina 
+
+#### Process to create parsed hours
+
+```{r, eval=FALSE}
+
+# for just the hours for the below columns
+model_data <- model_data %>%
+  mutate(deadline_hour = hour(transaction_date_df2), 
+         event_hour = hour(EVENT_TIMESTAMP))
+
+# filtering for only the abandoned carts
+abandoned_data <- model_data %>%
+  filter(made_a_purchase == 0, !is.na(event_hour))
+
+#Summarize abandonment count by hour
+abandoned_by_hour <- abandoned_data %>%
+  group_by(event_hour) %>%
+  summarise(abandoned = n())
+
+# plot
+ggplot(abandoned_by_hour, aes(x = event_hour, y = abandoned)) +
+  geom_line(color = "blue", linewidth = 1.2) +
+  labs(title = "Abandoned Carts by Hour of Day", 
+       x = "Hour", 
+       y = "Count of Abandoned Carts") +
+  theme_minimal()
+
+```
+
+![Tina Graphs 1 Modeling](Tina Graphs 1 Modeling.png)
+
+Assuming that an email/SMS/or sales rep call campaign can be started to help reduce the cart abandonment 
+
+```{r, eval=FALSE}
+
+#Calculate baseline Metrics
+total_event <- nrow(model_data)
+total_abandoned <- sum(model_data$made_a_purchase == 0, na.rm = TRUE)
+total_purchased <- sum(model_data$made_a_purchase == 1, na.rm = TRUE)
+
+baseline_rate <- total_purchased/total_event
+
+```
+
+```{r, eval=FALSE}
+
+# Simulating the intervention success 
+
+conversion_rate <- 0.10
+recovered_orders <- total_abandoned * conversion_rate
+
+new_purchased <- total_purchased + recovered_orders
+new_conversion_rate <- new_purchased /total_event
+improvement_pct <- (new_conversion_rate - baseline_rate) / baseline_rate * 100
+
+```
+
+![Tina Graphs 2 Modeling](Tina Graphs 2 Modeling.png)
+
+### Courtney
+
+```{python, eval=FALSE}
+
+import pandas as pd
+import json
+
+
+#load data from cass files
+ga = pd.read_csv("/Users/courtneyyoshimoto/Downloads/IS 6813 Final Output for Modeling.csv")
+material = pd.read_csv("/Users/courtneyyoshimoto/Downloads/material.csv")
+
+#normalize the material ids
+def pad18(x):
+    return pd.Series(x, dtype="string") \
+             .str.replace(r"\.0$", "", regex=True) \
+             .str.replace(r"[^0-9]", "", regex=True) \
+             .str.zfill(18)
+
+#get rows with explicit MATERIAL_ID
+ga_direct = ga.loc[ga["MATERIAL_ID"].notna(), ["CUSTOMER_ID","made_a_purchase","MATERIAL_ID","ORDER_QUANTITY"]].copy()
+ga_direct["MATERIAL_ID"] = pad18(ga_direct["MATERIAL_ID"])
+ga_direct["QTY"] = pd.to_numeric(ga_direct["ORDER_QUANTITY"], errors="coerce").fillna(1)
+
+#parse the items
+def parse_items(s):
+    try:
+        if pd.isna(s) or s == "[]": 
+            return []
+        obj = json.loads(s)
+        out = []
+        for d in obj:
+            iid = str(d.get("item_id", "")).strip()
+            qty = pd.to_numeric(d.get("quantity", 1), errors="coerce")
+            out.append({"MATERIAL_ID": iid, "QTY": 1 if pd.isna(qty) else int(qty)})
+        return out
+    except Exception:
+        return []
+
+ga_items = ga.loc[ga["ITEMS"].notna(), ["CUSTOMER_ID","made_a_purchase","ITEMS"]].copy()
+ga_items["parsed"] = ga_items["ITEMS"].apply(parse_items)
+ga_items = ga_items.explode("parsed").dropna(subset=["parsed"])
+ga_items["MATERIAL_ID"] = ga_items["parsed"].apply(lambda d: d["MATERIAL_ID"])
+ga_items["QTY"] = ga_items["parsed"].apply(lambda d: d["QTY"])
+ga_items = ga_items.drop(columns=["parsed","ITEMS"])
+ga_items["MATERIAL_ID"] = pad18(ga_items["MATERIAL_ID"])
+
+#merge with materials to get attributes
+ga_long = pd.concat(
+    [ga_direct[["CUSTOMER_ID","made_a_purchase","MATERIAL_ID","QTY"]],
+     ga_items[["CUSTOMER_ID","made_a_purchase","MATERIAL_ID","QTY"]]],
+    ignore_index=True
+)
+
+material["MATERIAL_ID"] = pad18(material["MATERIAL_ID"])
+attrs = ["PACK_TYPE_DESC","TRADE_MARK_DESC","BEV_CAT_DESC"]
+ga_attr = ga_long.merge(material[["MATERIAL_ID"] + attrs], on="MATERIAL_ID", how="left")
+ga_attr[attrs] = ga_attr[attrs].fillna("Unknown")
+
+#identifying that 1 = successful, 0 = abandoned
+ga_attr["ORDER_STATUS"] = ga_attr["made_a_purchase"].map({1:"Successful Order", 0:"Abandoned Cart"}).fillna("Abandoned Cart")
+ga_attr["y"] = (ga_attr["ORDER_STATUS"] == "Successful Order").astype(int)
+
+#count of each material id by customer order window
+def summarize(df, dim):
+    df_unique = df[[dim,"ORDER_STATUS","MATERIAL_ID"]].drop_duplicates()
+    g = (df_unique.groupby([dim,"ORDER_STATUS"], dropna=False)
+                   .size()
+                   .unstack(fill_value=0)
+                   .reset_index())
+    if "Abandoned Cart" not in g.columns: g["Abandoned Cart"] = 0
+    if "Successful Order" not in g.columns: g["Successful Order"] = 0
+    g["Abandoned %"]  = (g["Abandoned Cart"]  / g["Abandoned Cart"].sum() * 100).round(2)
+    g["Successful %"] = (g["Successful Order"] / g["Successful Order"].sum() * 100).round(2)
+    g["Risk"] = (g["Abandoned %"] - g["Successful %"]).round(2)
+    return g[[dim,"Abandoned Cart","Successful Order","Abandoned %","Successful %","Risk"]] \
+             .sort_values("Risk", ascending=False)
+
+
+#printe reseults
+print("\nTop High-Risk PACK TYPES")
+print(summarize(ga_attr, "PACK_TYPE_DESC").head(15))
+
+print("\n op High-Risk BRANDS")
+print(summarize(ga_attr, "TRADE_MARK_DESC").head(15))
+
+print("\nTop High-Risk CATEGORIES")
+print(summarize(ga_attr, "BEV_CAT_DESC").head(15))
+
+
+#modeling libraries
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.metrics import classification_report, confusion_matrix
+import matplotlib.pyplot as plt
+
+#define the target and features
+features = ["PACK_TYPE_DESC", "TRADE_MARK_DESC", "BEV_CAT_DESC"]
+X = ga_attr[features]
+y = ga_attr["y"]
+
+#one-hot encode categorical predictors
+encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+X_encoded = pd.DataFrame(
+    encoder.fit_transform(X),
+    columns=encoder.get_feature_names_out(features)
+)
+
+#train/ test 70/30 split
+X_train, X_test, y_train, y_test = train_test_split(
+    X_encoded, y, test_size=0.3, random_state=42, stratify=y
+)
+
+#train model using decision tress
+tree = DecisionTreeClassifier(max_depth=4, min_samples_leaf=50, random_state=42)
+tree.fit(X_train, y_train)
+
+#evaluate model
+y_pred = tree.predict(X_test)
+print("\nConfusion Matrix:")
+print(confusion_matrix(y_test, y_pred))
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred, target_names=["Abandoned (0)","Successful (1)"]))
+
+#print visual
+plt.figure(figsize=(18,8))
+plot_tree(
+    tree,
+    feature_names=encoder.get_feature_names_out(features),
+    class_names=["Abandoned","Successful"],
+    filled=True,
+    fontsize=8
+)
+plt.show()
+
+#print predictor of success
+importances = pd.Series(tree.feature_importances_, index=encoder.get_feature_names_out(features))
+print("\nTop Predictors of Success:")
+print(importances.sort_values(ascending=False).head(10))
+
+
+```
+
+### Alphy
+
+```{python, eval=FALSE}
+
+#Handling data leakage
+def screen_leakage(X, y, corr_thresh=0.85):
+    keep, dropped = [], []
+    y_arr = y.values.astype(float)
+    for c in X.columns:
+        s = X[c]
+        # Dropping constants
+        if s.nunique(dropna=False) <= 1:
+            dropped.append((c, "constant"))
+            continue
+        if s.dtype == "object":
+            vals0 = set(s[y==0].dropna().unique())
+            vals1 = set(s[y==1].dropna().unique())
+            if len(vals0 & vals1) == 0:
+                dropped.append((c, "perfect-separation(cat)"))
+            else:
+                keep.append(c)
+        else:
+            snum = pd.to_numeric(s, errors="coerce").replace([np.inf,-np.inf], np.nan)
+            if snum.notna().sum() < 3:
+                dropped.append((c, "too-few-nonnull"))
+                continue
+            corr = np.corrcoef(snum.fillna(snum.median()), y_arr)[0,1]
+            if np.isfinite(corr) and abs(corr) > corr_thresh:
+                dropped.append((c, f"high-corr({corr:.3f})"))
+            else:
+                keep.append(c)
+    return keep, dropped
+
+keep_cols, dropped_cols = screen_leakage(X_train, y_train, corr_thresh=0.85)
+print("Dropped features:")
+for name, why in dropped_cols:
+    print(f"  - {name}: {why}")
+
+# X_train/X_test
+X_train_scr = X_train[keep_cols].copy()
+X_test_scr  = X_test[keep_cols].copy()
+
+cat_cols_scr = [c for c in X_train_scr.columns if X_train_scr[c].dtype == "object"]
+num_cols_scr = [c for c in X_train_scr.columns if c not in cat_cols_scr]
+
+categorical_preprocess_scr = Pipeline([
+    ("imp", SimpleImputer(strategy="most_frequent")),
+    ("oh", OneHotEncoder(handle_unknown="ignore"))
+])
+numeric_preprocess_scr = Pipeline([
+    ("imp", SimpleImputer(strategy="median")),
+    ("sc", StandardScaler())
+])
+preproc_scr = ColumnTransformer([
+    ("cat", categorical_preprocess_scr, cat_cols_scr),
+    ("num", numeric_preprocess_scr, num_cols_scr)
+])
+logit_scr = Pipeline([
+    ("prep", preproc_scr),
+    ("model", LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42))
+])
+
+# CV with groups 
+if groups_train is not None:
+    gkf = GroupKFold(n_splits=5)
+    cv_scores_scr = cross_val_score(
+        logit_scr, X_train_scr, y_train,
+        cv=gkf.split(X_train_scr, y_train, groups_train),
+        scoring="roc_auc"
+    )
+else:
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    cv_scores_scr = cross_val_score(logit_scr, X_train_scr, y_train, cv=kf, scoring="roc_auc")
+
+print("\nLeak-safe Logistic CV ROC-AUC:", np.round(cv_scores_scr, 3), "Mean:", round(cv_scores_scr.mean(), 3))
+
+# Test evaluation 
+logit_scr.fit(X_train_scr, y_train)
+y_prob_scr = logit_scr.predict_proba(X_test_scr)[:, 1]
+y_pred_scr = (y_prob_scr >= 0.5).astype(int)
+
+print("\nTime-based Test ROC-AUC:", round(roc_auc_score(y_test, y_prob_scr), 3))
+print("\nConfusion Matrix:\n", confusion_matrix(y_test, y_pred_scr))
+print("\nClassification Report:\n", classification_report(y_test, y_pred_scr, digits=3))
+
+# Uplift modeling scaffold (T-Learner)
+
+if "treatment" not in df_leakfree.columns:
+    np.random.seed(42)
+    df_leakfree["treatment"] = np.random.choice([0,1], size=len(df_leakfree), p=[0.5,0.5])
+
+X_u = df_leakfree[keep_cols].copy()
+y_u = df_leakfree["made_a_purchase"].astype(int)
+t_u = df_leakfree["treatment"].astype(int)
+
+# treated vs control
+Xt, yt = X_u[t_u==1], y_u[t_u==1]
+Xc, yc = X_u[t_u==0], y_u[t_u==0]
+
+# preprocessing 
+cat_u = [c for c in X_u.columns if X_u[c].dtype == "object"]
+num_u = [c for c in X_u.columns if c not in cat_u]
+
+preproc_u = ColumnTransformer([
+    ("cat", Pipeline([("imp", SimpleImputer(strategy="most_frequent")),
+                      ("oh", OneHotEncoder(handle_unknown="ignore"))]), cat_u),
+    ("num", Pipeline([("imp", SimpleImputer(strategy="median")),
+                      ("sc", StandardScaler())]), num_u)
+])
+
+# Two logistic models (T-Learner)
+lr_t = Pipeline([("prep", preproc_u), ("m", LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42))])
+lr_c = Pipeline([("prep", preproc_u), ("m", LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42))])
+
+lr_t.fit(Xt, yt)
+lr_c.fit(Xc, yc)
+
+# counterfactuals
+p_treat = lr_t.predict_proba(X_u)[:,1]
+p_ctrl  = lr_c.predict_proba(X_u)[:,1]
+
+df_uplift = df_leakfree[["CUSTOMER_ID"]].copy() if "CUSTOMER_ID" in df_leakfree.columns else pd.DataFrame(index=X_u.index)
+df_uplift["uplift_score"] = p_treat - p_ctrl
+df_uplift.sort_values("uplift_score", ascending=False).head(10)
+
+logit_scr.fit(X_train_scr, y_train)
+
+# preprocessing and model steps
+prep = logit_scr.named_steps["prep"]
+clf  = logit_scr.named_steps["model"]
+
+num_names = np.array(prep.transformers_[1][2])
+
+# model coefficients
+coef = clf.coef_.ravel()
+
+# Combining into a dataframe
+import pandas as pd
+imp_df = pd.DataFrame({
+    "feature": num_names,
+    "coef": coef,
+    "abs_coef": np.abs(coef)
+}).sort_values("abs_coef", ascending=False)
+
+print("Top predictors (by absolute coefficient):")
+display(imp_df)
+
+# Separating into positive and negative
+print("\nTop positive predictors (increase recovery odds):")
+display(imp_df.sort_values("coef", ascending=False).head(10))
+
+print("\nTop negative predictors (decrease recovery odds):")
+display(imp_df.sort_values("coef", ascending=True).head(10))
+
+```
+
+### Sabrina 
+
+#### Clean-up and Cross-Validation
+
+```{r, eval=FALSE}
+
+#final output csv
+modeling <- read.csv('IS 6813 Final Output for Modeling.csv')
+
+#omitting datetime columns as well as material IDs and items as I do not wish to use for scope of my modeling purposes
+modeling$transaction_date_df2 <- NULL
+modeling$event_date_df1 <- NULL
+modeling$EVENT_TIMESTAMP <- NULL
+modeling$MATERIAL_ID <- NULL
+modeling$ITEMS <- NULL
+
+#factoring the made_a_purchase target variable column to use for model
+modeling$made_a_purchase <- as.factor(modeling$made_a_purchase)
+
+#set seed for reproducibility
+set.seed(123)
+
+#use 70% of dataset as training set and 30% as test set
+train <- createDataPartition(modeling$made_a_purchase, p=0.7, list=FALSE)
+
+length(train)
+class(train)
+
+train_set <- modeling[train,]
+test_set <- modeling[-train,]
+
+train_set |>
+  nrow()
+
+test_set |>
+  nrow()
+
+```
+
+#### Modeling
+
+```{r, eval=FALSE}
+
+#naiveBayes model with specified predictors
+nb_model <- naiveBayes(made_a_purchase ~ DEVICE_CATEGORY + DEVICE_MOBILE_BRAND_NAME + DEVICE_OPERATING_SYSTEM + ORDER_TYPE, data=train_set, laplace=0)
+
+nb_model
+
+```
+
+#### Generating Predictions
+
+```{r, eval=FALSE}
+
+train_nb_model_pred <- predict(nb_model, train_set)
+test_nb_model_pred <- predict(nb_model, test_set)
+
+```
+
+#### Generating Confusion Matrix
+
+```{r, eval=FALSE}
+
+mmetric(train_set$made_a_purchase, train_nb_model_pred, metric='CONF')
+mmetric(test_set$made_a_purchase, test_nb_model_pred, metric='CONF')
+
+```
+
+#### Generating Metrics
+
+```{r, eval=FALSE}
+
+mmetric(train_set$made_a_purchase, train_nb_model_pred, metric=c('F1','ACC','PRECISION','RECALL'))
+
+mmetric(test_set$made_a_purchase, test_nb_model_pred, metric=c('F1','ACC','PRECISION','RECALL'))
+
+```
+
+

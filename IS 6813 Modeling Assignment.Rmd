@@ -1,0 +1,333 @@
+---
+title: 'IS 6813: Modeling'
+author: "Sabrina Lin"
+date: "2025-10-21"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    toc-title: "Contents"
+    embed-resources: true
+execute:
+  include: true
+  eval: true    
+  warning: false
+  message: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(caret)
+library(randomForest)
+```
+
+## Success Metric 4 - Customer Engagement: Improve customer checkout completion rates by 15% among customers targeted with reminders or interventions
+
+```{r}
+
+#Courtney's final output with the abandoned cart column
+
+final_output <- read.csv('final_output.csv')
+
+```
+
+Available Tables: 
+- Google Analytics - final_output
+- Orders
+- Sales
+- Visit Plan - final_output, missing SALES_OFFICE_DESC (use Customer table instead)
+- Customer
+- Order Cut Off Times -> not using (repetitive)
+- Operating Hours -> not using (repetitive)
+- Material -> not using (not the scope I want to go with)
+
+```{r}
+
+#Take a sample of 5,000 rows to work with from the data table
+
+set.seed(123)
+
+sample <- final_output |> 
+    sample_n(size = 5000, replace = FALSE) 
+
+```
+
+Cleaning Up Table 
+
+```{r}
+
+#convert to 1 if 'abandoned' is found in abandoned_flag column, otherwise 0
+sample <- sample |>
+  mutate(Abandoned_Cart = if_else(grepl('abandoned', abandoned_flag), 1, 0))
+
+```
+
+```{r}
+
+sum(is.na(sample$Abandoned_Cart))
+
+```
+
+```{r}
+
+#Removing columns I do not want
+
+sample$rank <- NULL
+sample$UPDATED_CALLING_ANCHOR_DATE <- NULL
+sample$UPDATED_FREQUENCY <- NULL
+sample$SALES_OFFICE_y <- NULL
+sample$CUT_PLANT_ID <- NULL
+sample$CUTOFFTIME__C <- NULL
+sample$NEXT_ORDER_BY_TIMESTAMP <- NULL
+sample$OFFSET_HOURS <- NULL
+sample$LOCAL_EVENT_TIMESTAMP <- NULL
+sample$ABANDONED_FLAG <- NULL
+sample$abandoned_flag <- NULL
+sample$order_status <- NULL
+sample$UPDATED_SALES_OFFICE <- NULL
+
+```
+
+```{r}
+
+#Inputting tables I want to use and append
+
+orders <- read.csv('orders.csv')
+sales <- read.csv('sales.csv')
+customer <- read.csv('customer.csv')
+
+```
+
+```{r}
+
+#Dropping additional columns in the inputted tables that I do not want to use
+
+orders$CREATED_DATE_EST <- NULL
+orders$CREATED_DATE_UTC <- NULL
+orders$MATERIAL_ID <- NULL
+
+sales$POSTING_DATE <-NULL
+sales$MATERIAL_ID <- NULL
+sales$GROSS_PROFIT_DEAD_NET <- NULL
+
+```
+
+```{r}
+
+#Joining tables to sample table
+
+customer <- customer |>
+  rename(CUSTOMER_ID = CUSTOMER_NUMBER)
+
+inner_joined_df <- merge(sample, customer, by = 'CUSTOMER_ID')
+
+```
+
+```{r}
+
+#Take a sample of 5,000 rows to work with from the orders data table
+
+set.seed(123)
+
+sample_orders <- orders |> 
+    sample_n(size = 5000, replace = FALSE)
+
+inner_joined_df <- merge(inner_joined_df, sample_orders, by = 'CUSTOMER_ID')
+
+```
+
+```{r}
+
+#Take a sample of 5,000 rows to work with from the sales data table
+
+set.seed(123)
+
+sample_sales <- sales |> 
+    sample_n(size = 5000, replace = FALSE)
+
+inner_joined_df <- merge(inner_joined_df, sample_sales, by = 'CUSTOMER_ID')
+
+```
+
+Need to rectify NAs if present 
+
+```{r}
+
+#count NAs in each column
+na_counts_per_column <- colSums(is.na(inner_joined_df))
+print(na_counts_per_column)
+
+```
+
+Looks like FREQUENCY is the only one with some NAs - dropping column as I don't need it, was used to calculate Abandoned_Cart, but otherwise I don't think it's useful? Speaking of which I will drop some additional time columns as well. 
+
+```{r}
+
+#Dropping additional columns after NA count
+
+inner_joined_df$FREQUENCY <- NULL
+inner_joined_df$EVENT_TIMESTAMP <- NULL
+inner_joined_df$ANCHOR_DATE <- NULL
+
+```
+
+Factoring columns
+
+```{r}
+
+#convert all character columns to factors
+inner_joined_df[sapply(inner_joined_df, is.character)] <- lapply(inner_joined_df[sapply(inner_joined_df, is.character)], as.factor)
+
+```
+
+Time to model! 
+
+Type: RandomForest
+
+Goal: Customer Engagement - Improve customer checkout completion rates by 15% among customers targeted with reminders or interventions
+
+Target variable: Abandoned_Cart -> 1-yes, abandoned; 0-no, otherwise
+
+```{r}
+
+inner_joined_df |>
+  pull(Abandoned_Cart) |>
+  table()
+    
+inner_joined_df |>
+  pull(Abandoned_Cart) |>
+  table() |>
+  prop.table() |>
+  round(2)
+
+```
+
+A lot of abandoned carts! 90% are abandoning, but could be for the same customers. 
+
+Need to cross-validate model, so taking 70% for training and the other 30% for testing.
+
+```{r}
+
+#set seed for reproducibility
+set.seed(123)
+
+#use 70% of dataset as training set and 30% as test set
+train <- createDataPartition(inner_joined_df$Abandoned_Cart, p=0.7, list=FALSE)
+
+length(train)
+class(train)
+
+train_set <- inner_joined_df[train,]
+test_set <- inner_joined_df[-train,]
+
+train_set |>
+  nrow()
+
+test_set |>
+  nrow()
+
+```
+
+Seeing the count and distributions of Abandoned_Cart in the 70/30 train and test set.
+
+```{r}
+
+train_set |>
+  pull(Abandoned_Cart) |>
+  table() 
+
+train_set |>
+  pull(Abandoned_Cart) |>
+  table() |>
+  prop.table()
+
+test_set |>
+  pull(Abandoned_Cart) |>
+  table() 
+
+test_set |>
+  pull(Abandoned_Cart) |>
+  table() |>
+  prop.table()
+
+```
+
+Looks pretty representative to the original data set of 90% to 10% abandoned to not abandoned. 
+
+Now for the actual modeling portion - would like to try both RandomForest and other Decision Trees.
+
+RandomForest
+
+```{r}
+
+#These columns have factors with levels above 53 which randomForest cannot compute 
+train_set$EVENT_DATE <- NULL
+train_set$EVENT_NAME <- NULL
+train_set$EVENT_PAGE_TITLE <- NULL
+train_set$ITEMS <- NULL
+
+```
+
+```{r}
+
+#Define Hyperparameter Grid
+# Define a grid for the 'mtry' parameter in Random Forest
+tuneGrid <- expand.grid(mtry = c(1, 2))
+
+#Cross-Validation Setup (using stratified sampling)
+control <- trainControl(method = "cv", 
+                        number = 5,
+                        summaryFunction = defaultSummary,
+                        savePredictions = TRUE,
+                        classProbs = FALSE,
+                        sampling = "smote")  # Handle class imbalance in small datasets
+
+model <- train(Abandoned_Cart ~ ., 
+               data = train_set, 
+               method = "rf", 
+               metric = "Accuracy",   # Set the metric explicitly for classification
+               trControl = control, 
+               tuneGrid = tuneGrid,
+               allowParallel = TRUE)
+
+# Print the Best Tuned Model
+print(model$bestTune)   # Output the best 'mtry' value
+print(model) 
+
+```
+
+```{r}
+
+# Train the Random Forest model
+rf_model <- randomForest(Abandoned_Cart ~ ., data = train_set, importance = TRUE, ntree = 500)
+
+# Print the model summary
+print(rf_model)
+
+```
+
+```{r}
+
+#rf_model
+
+```
+
+
+
+
+Lol R cannot handle that many rows so I will export the excel and do in Python
+
+```{r}
+
+write.csv(inner_joined_df, 'inner_joined_df.csv', row.names = FALSE)
+
+```
